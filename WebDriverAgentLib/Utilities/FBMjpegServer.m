@@ -23,6 +23,7 @@
 // decodage du JPEG rendu par la capture.
 @import UIKit;
 @import VideoToolbox;
+@import CoreImage;
 
 
 static const NSUInteger MAX_FPS = 60;
@@ -267,6 +268,8 @@ static const uint8_t FBH264StartCode[4] = {0x00, 0x00, 0x00, 0x01};
 @property (nonatomic, assign) size_t sessionWidth;
 @property (nonatomic, assign) size_t sessionHeight;
 @property (nonatomic, assign) int64_t frameIndex;
+@property (nonatomic, assign) CVPixelBufferPoolRef pixelBufferPool;
+@property (nonatomic, strong) CIContext *ciContext;
 
 - (void)broadcastPayload:(NSData *)payload;
 
@@ -498,6 +501,33 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
   VTSessionSetProperty(session, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, keyFrameRef);
   CFRelease(keyFrameRef);
 
+  // 🔴 UN POOL, ET LE GPU. Sans eux, chaque image coutait une allocation de
+  // 13 Mo (1242x2688x4) plus un dessin sur le PROCESSEUR : ~110 ms par image,
+  // soit 8,7 img/s mesurees le 2026-08-08. J'avais retire le passage par
+  // CoreImage de DeviceKit en croyant qu'il ne servait qu'a redimensionner --
+  // il est en realite leur conversion en pixels, sur le GPU. C'est la seule
+  // raison pour laquelle ils tiennent 38 img/s en definition native.
+  NSDictionary *poolAttributs = @{
+    (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+    (id)kCVPixelBufferWidthKey: @(width),
+    (id)kCVPixelBufferHeightKey: @(height),
+    (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+  };
+  CVPixelBufferPoolRef pool = NULL;
+  CVPixelBufferPoolCreate(kCFAllocatorDefault,
+                          (__bridge CFDictionaryRef)@{(id)kCVPixelBufferPoolMinimumBufferCountKey: @3},
+                          (__bridge CFDictionaryRef)poolAttributs, &pool);
+  if (NULL != self.pixelBufferPool) {
+    CVPixelBufferPoolRelease(self.pixelBufferPool);
+  }
+  self.pixelBufferPool = pool;
+  if (nil == self.ciContext) {
+    self.ciContext = [CIContext contextWithOptions:@{
+      kCIContextUseSoftwareRenderer: @NO,
+      kCIContextHighQualityDownsample: @NO,
+    }];
+  }
+
   VTCompressionSessionPrepareToEncodeFrames(session);
 
   self.session = session;
@@ -519,40 +549,27 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     self.sessionWidth = 0;
     self.sessionHeight = 0;
   }
+  if (NULL != self.pixelBufferPool) {
+    CVPixelBufferPoolRelease(self.pixelBufferPool);
+    self.pixelBufferPool = NULL;
+  }
 }
 
 - (CVPixelBufferRef)pixelBufferFromImage:(CGImageRef)image CF_RETURNS_RETAINED
 {
-  size_t width = CGImageGetWidth(image);
-  size_t height = CGImageGetHeight(image);
-  NSDictionary *attributes = @{
-    (id)kCVPixelBufferCGImageCompatibilityKey: @YES,
-    (id)kCVPixelBufferCGBitmapContextCompatibilityKey: @YES,
-    (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
-  };
-  CVPixelBufferRef pixelBuffer = NULL;
-  if (kCVReturnSuccess != CVPixelBufferCreate(kCFAllocatorDefault, width, height,
-                                              kCVPixelFormatType_32BGRA,
-                                              (__bridge CFDictionaryRef)attributes,
-                                              &pixelBuffer)) {
+  if (NULL == self.pixelBufferPool || nil == self.ciContext) {
     return NULL;
   }
-
-  CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-  CGContextRef context = CGBitmapContextCreate(CVPixelBufferGetBaseAddress(pixelBuffer),
-                                               width, height, 8,
-                                               CVPixelBufferGetBytesPerRow(pixelBuffer),
-                                               colorSpace,
-                                               kCGImageAlphaNoneSkipFirst
-                                               | kCGBitmapByteOrder32Little);
-  if (NULL != context) {
-    // Aucun redimensionnement : la definition native est deja celle qu'on veut.
-    CGContextDrawImage(context, CGRectMake(0, 0, width, height), image);
-    CGContextRelease(context);
+  CVPixelBufferRef pixelBuffer = NULL;
+  if (kCVReturnSuccess != CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,
+                                                             self.pixelBufferPool,
+                                                             &pixelBuffer)) {
+    return NULL;
   }
-  CGColorSpaceRelease(colorSpace);
-  CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+  // Rendu par le GPU. Aucun redimensionnement : la definition native est deja
+  // celle qu'on veut, et l'encodeur a ete cree a cette taille.
+  CIImage *ciImage = [CIImage imageWithCGImage:image];
+  [self.ciContext render:ciImage toCVPixelBuffer:pixelBuffer];
   return pixelBuffer;
 }
 
