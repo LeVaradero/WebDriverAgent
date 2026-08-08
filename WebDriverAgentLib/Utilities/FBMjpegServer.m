@@ -379,8 +379,16 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     _frameIndex = 0;
     _listeningClients = [NSMutableArray array];
     _mainScreenID = [XCUIScreen.mainScreen displayID];
+    // 🔴 `USER_INITIATED`, PAS `UTILITY`. Mesure du 2026-08-08 : une capture
+    // coutait 70 ms depuis une file `UTILITY` (celle que WDA utilise pour son
+    // MJPEG), contre ~19 ms chez DeviceKit. Ils capturent depuis une file
+    // `userInitiated` et depuis le MainActor ; nous depuis une file declaree
+    // « tache de fond, prends ton temps ». iOS depriorise le fil, et la reponse
+    // XPC du demon XCTest herite de cette priorite.
+    // Ca explique d'un seul coup pourquoi NOTRE serveur ET le MJPEG d'origine
+    // de WDA sont lents, pendant que les deux chemins de DeviceKit sont rapides.
     dispatch_queue_attr_t attributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
-                                                                              QOS_CLASS_UTILITY, 0);
+                                                                              QOS_CLASS_USER_INITIATED, 0);
     _backgroundQueue = dispatch_queue_create(FBH264QueueName, attributes);
     __weak typeof(self) weakSelf = self;
     dispatch_async(_backgroundQueue, ^{
