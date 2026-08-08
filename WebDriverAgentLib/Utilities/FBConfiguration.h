@@ -140,6 +140,15 @@ extern NSString *const FBSnapshotMaxDepthKey;
 + (NSInteger)h264ServerPort;
 
 /**
+ Cadence visee par le diffuseur H.264 (`H264_FPS`), 60 par defaut.
+ REGLAGE DEDIE, et pas celui du MJPEG : celui-ci vaut 10 par defaut dans WDA,
+ ce qui donnait 8,8 images/s au premier essai reel (2026-08-08). Les deux
+ diffuseurs n'ont pas le meme cout par image, ils n'ont pas a partager leur
+ cadence.
+ */
++ (NSInteger)h264Framerate;
+
+/**
  The maximum allowed HTTP request body size in bytes.
  Defaults to 1GB and can be overridden with the MAX_HTTP_REQUEST_BODY_SIZE environment variable.
  */

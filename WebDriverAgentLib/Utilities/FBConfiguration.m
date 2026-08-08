@@ -177,6 +177,18 @@ static BOOL FBShouldEnforceCustomSnapshots = NO;
   return self.mjpegServerPort + 1;
 }
 
++ (NSInteger)h264Framerate
+{
+  NSString *fps = NSProcessInfo.processInfo.environment[@"H264_FPS"];
+  if (nil != fps && fps.length > 0) {
+    return fps.integerValue;
+  }
+  // 60 : on demande le maximum, et la boucle s'arrete d'elle-meme au rythme
+  // que la capture peut tenir (~57 img/s mesures sur un iPhone XS Max).
+  // Demander moins ne fait que brider sans rien economiser.
+  return 60;
+}
+
 + (UInt64)httpRequestBodySizeLimit
 {
   NSString *limit = NSProcessInfo.processInfo.environment[@"MAX_HTTP_REQUEST_BODY_SIZE"];

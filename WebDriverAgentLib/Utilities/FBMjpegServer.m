@@ -385,7 +385,9 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
 
 - (NSUInteger)normalizedFramerate
 {
-  NSUInteger framerate = (NSUInteger)FBConfiguration.mjpegServerFramerate;
+  // Reglage DEDIE. Lire celui du MJPEG donnait 10 img/s par defaut, donc
+  // 8,8 mesurees au premier essai reel du 2026-08-08.
+  NSUInteger framerate = (NSUInteger)FBConfiguration.h264Framerate;
   return (0 == framerate || framerate > FBH264MaxFps) ? FBH264MaxFps : framerate;
 }
 
