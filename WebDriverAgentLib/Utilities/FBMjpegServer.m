@@ -250,7 +250,21 @@ static NSUInteger FBNormalizedMjpegFramerate(NSUInteger framerate)
 static const NSTimeInterval FBH264FrameTimeout = 1.0;
 static const NSUInteger FBH264MaxFps = 60;
 static const int32_t FBH264Bitrate = 4000000;          // 4 Mbit/s, comme DeviceKit
-static const CGFloat FBH264CaptureQuality = 0.6;       // cf. commentaire ci-dessus
+// 🔴 REGLABLE A CHAUD, ET C'EST DELIBERE. Chaque hypothese sur le cout de la
+// capture coutait sinon une compilation ET une installation a la main sur le
+// telephone -- ce qui pousse a deviner au lieu de balayer. Six versions ont ete
+// perdues comme ca le 2026-08-08.
+// On reutilise `mjpegServerScreenshotQuality` (0-100), qui est deja modifiable
+// en direct par `POST /session/<id>/appium/settings`. Partage avec le MJPEG,
+// assume : c'est un banc d'essai, pas un reglage de production.
+static CGFloat FBH264CurrentCaptureQuality(void)
+{
+  NSInteger q = FBConfiguration.mjpegServerScreenshotQuality;
+  if (q <= 0 || q > 100) {
+    q = 60;
+  }
+  return (CGFloat)q / 100.0;
+}
 static const NSTimeInterval FBH264KeyFrameInterval = 2.0;
 
 static NSString *const FBH264ServerName = @"WDA H264 Server";
@@ -462,7 +476,7 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
       return;
     }
     [FBScreenshot requestImageWithScreenID:fort.mainScreenID
-                       compressionQuality:FBH264CaptureQuality
+                       compressionQuality:FBH264CurrentCaptureQuality()
                                       uti:UTTypeJPEG
                                completion:^(UIImage *image, NSError *error) {
       typeof(self) encore = weakSelf;
@@ -650,8 +664,9 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     double v = (double)self.mesureConversion / 60.0 / 1e6;
     double n = (double)self.mesureEncodage / 60.0 / 1e6;
     [FBLogger logFmt:@"H264 couts: capture %.1f ms | conversion %.1f ms | encodage %.1f ms"
-     @" | total %.1f ms -> %.1f img/s | perdues %@", c, v, n, c + v + n,
-     1000.0 / MAX(c + v + n, 0.1), @(self.mesurePerdues)];
+     @" | total %.1f ms -> %.1f img/s | perdues %@ | qualite %.2f | fps %@",
+     c, v, n, c + v + n, 1000.0 / MAX(c + v + n, 0.1), @(self.mesurePerdues),
+     FBH264CurrentCaptureQuality(), @([self normalizedFramerate])];
     self.mesureCapture = 0;
     self.mesureConversion = 0;
     self.mesureEncodage = 0;
