@@ -1,53 +1,37 @@
 #!/bin/bash
 
-# iFARM 2026-08-08 : COMPILATION EN RELEASE, et ce n'est pas un detail.
+# iFARM 2026-08-08 : ON REVIENT AUX REGLAGES D'APPIUM, ET C'EST MESURE.
 #
-# Sans `-configuration`, `build-for-testing` prend le reglage de l'action Test du
-# schema -- c'est-a-dire DEBUG : aucune optimisation du compilateur, assertions
-# actives, comptage de references non optimise. DeviceKit, lui, se compile en
-# Release (leur Makefile : `CONFIGURATION ?= Release`).
+# J'ai essaye deux changements au niveau de la CONSTRUCTION, en croyant copier
+# DeviceKit. Les deux sont des REGRESSIONS, mesurees notre serveur seul sur le
+# telephone, ecran qui bouge, aucun geste :
 #
-# On comparait donc du code NON OPTIMISE a du code OPTIMISE, sur une boucle qui
-# traite 3,3 millions de pixels par image et ou WDA construit sa requete de
-# capture par reflexion (NSInvocation) a chaque appel. L'ecart Debug/Release y
-# est couramment d'un facteur 2 -- l'ordre de grandeur qui nous manquait.
+#   reglages d'appium (Debug, XCTest du systeme) : capture 26-48 ms, conversion
+#     7 ms, encodage 0,3 ms  ->  jusqu'a 40 img/s
+#   Release + XCTest embarque : capture 72-84 ms, conversion 22 ms, encodage
+#     3,4 ms  ->  9 img/s
 #
-# Ca ne se voit ni dans le code source, ni dans le binaire : seulement en lisant
-# comment chacun est CONSTRUIT.
-xcodebuild clean build-for-testing \
-  -configuration Release \
-  -project WebDriverAgent.xcodeproj \
-  -derivedDataPath $DERIVED_DATA_PATH \
-  -scheme $SCHEME \
-  -destination "$DESTINATION" \
-  CODE_SIGNING_ALLOWED=NO ARCHS=arm64
+# TOUT ralentit, y compris notre propre conversion et notre encodage. Le plus
+# probable est l'XCTest embarque : charger un moteur de 5,9 Mo depuis le paquet
+# au lieu de celui du systeme n'a aucune raison d'etre plus rapide sur iOS 16.
+#
+# ⚠️ FAUTE DE METHODE A NE PAS REFAIRE : j'ai empile les deux changements sans
+# mesurer entre les deux, donc je ne peux pas dire lequel coute quoi. Un
+# changement a la fois, une mesure a chaque fois.
+#
+# Et les deux mesures qui les ont motives etaient FAUSSES : elles comparaient
+# notre serveur seul a DeviceKit... alors que DeviceKit tournait aussi pendant la
+# mesure de notre serveur. C'est le proprietaire qui l'a releve.
+xcodebuild clean build-for-testing   -project WebDriverAgent.xcodeproj   -derivedDataPath $DERIVED_DATA_PATH   -scheme $SCHEME   -destination "$DESTINATION"   CODE_SIGNING_ALLOWED=NO ARCHS=arm64
 
 pushd $WD
 
-# iFARM 2026-08-08 : ON GARDE LES FRAMEWORKS DE TEST, contrairement a appium.
-#
-# Le commentaire d'appium, conserve pour memoire :
-#   - to remove test packages to refer to the device local instead of embedded
-#     ones : XCTAutomationSupport, XCTest, XCTestCore, XCUIAutomation, XCUnit.
-#   - Xcode 16 started generating 5.9MB of 'Testing.framework'.
-#   - libXCTestSwiftSupport is used for Swift testing.
-#
-# POURQUOI ON NE LES RETIRE PLUS. Les faire retirer revient a utiliser le XCTest
-# LOCAL de l'appareil -- celui d'iOS 16.4.1 sur l'iPhone XS Max, une
-# implementation de 2023. DeviceKit embarque celui du SDK 18.4, et sa capture est
-# stable la ou la notre etait erratique (26 a 312 ms). Meme API, implementation
-# differente, et ca ne se voit PAS dans le code source : seulement en ouvrant les
-# deux .ipa cote a cote (6,2 Mo contre 811 Ko).
-#
-# Le doute << un XCTest recent plante sur iOS 16 >> est demenit par les faits, et
-# deux fois : DeviceKit les embarque et tourne sur ce telephone, et notre propre
-# build les embarquant a demarre sur iOS 16.4.1 (verifie le 2026-08-08).
-#
-# Cout : l'ipa passe de ~0,8 a ~6 Mo. Sans consequence, il s'installe une fois.
-# Pour revenir au comportement d'appium, remettre les trois exclusions :
-#   -x "$SCHEME-Runner.app/Frameworks/XC*.framework*" \
-#      "$SCHEME-Runner.app/Frameworks/Testing.framework*" \
-#      "$SCHEME-Runner.app/Frameworks/libXCTestSwiftSupport.dylib"
-zip -r $ZIP_PKG_NAME $SCHEME-Runner.app
+# Commentaire d'origine d'appium, et on suit leur choix :
+# - to remove test packages to refer to the device local instead of embedded ones
+#   XCTAutomationSupport.framework, XCTest.framework, XCTestCore.framework,
+#   XCUIAutomation.framework, XCUnit.framework.
+# - Xcode 16 started generating 5.9MB of 'Testing.framework'.
+# - libXCTestSwiftSupport is used for Swift testing.
+zip -r $ZIP_PKG_NAME $SCHEME-Runner.app     -x "$SCHEME-Runner.app/Frameworks/XC*.framework*"        "$SCHEME-Runner.app/Frameworks/Testing.framework*"        "$SCHEME-Runner.app/Frameworks/libXCTestSwiftSupport.dylib"
 popd
 mv $WD/$ZIP_PKG_NAME ./
