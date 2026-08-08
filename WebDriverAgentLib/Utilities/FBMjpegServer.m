@@ -489,13 +489,27 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
         if (nil == enfin || !enfin.isStreaming) {
           return;
         }
-        CGImageRef cgImage = image.CGImage;
-        if (NULL == cgImage) {
-          if (nil != error) {
-            [FBLogger logFmt:@"H264: capture impossible: %@", error.description];
+        // 🔴 UN BASSIN DE LIBERATION PAR IMAGE, ET C'EST INDISPENSABLE. Chaque
+        // image pese 13 Mo (1242x2688x4) et on en produit une trentaine par
+        // seconde : sans vider les objets temporaires a chaque tour, la memoire
+        // enfle, iOS compacte, et la CAPTURE ralentit progressivement.
+        // Mesure du 2026-08-08 sur un seul et meme flux, sans rien changer :
+        //     capture 26,1 ms -> 33,2 -> 72,2 -> 312,5 ms
+        // Soit une division par douze de la cadence en quelques dizaines de
+        // secondes. J'ai d'abord cru que ca dependait de l'ecran affiche ; c'est
+        // le TEMPS ECOULE depuis l'ouverture du flux qui comptait.
+        // ⚠️ La chaine enjambe plusieurs blocs (file de fond -> fil principal ->
+        // reponse -> file de fond), donc le bassin implicite de la file ne suffit
+        // pas : il faut le declarer ici, autour du travail lourd.
+        @autoreleasepool {
+          CGImageRef cgImage = image.CGImage;
+          if (NULL == cgImage) {
+            if (nil != error) {
+              [FBLogger logFmt:@"H264: capture impossible: %@", error.description];
+            }
+          } else {
+            [enfin encodeImage:cgImage];
           }
-        } else {
-          [enfin encodeImage:cgImage];
         }
         [enfin scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
       });
@@ -622,8 +636,10 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
   }
   // Rendu par le GPU. Aucun redimensionnement : la definition native est deja
   // celle qu'on veut, et l'encodeur a ete cree a cette taille.
-  CIImage *ciImage = [CIImage imageWithCGImage:image];
-  [self.ciContext render:ciImage toCVPixelBuffer:pixelBuffer];
+  @autoreleasepool {
+    CIImage *ciImage = [CIImage imageWithCGImage:image];
+    [self.ciContext render:ciImage toCVPixelBuffer:pixelBuffer];
+  }
   return pixelBuffer;
 }
 
