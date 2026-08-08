@@ -42,7 +42,12 @@ jobs:
           DERIVED_DATA_PATH: appium_wda_ios
           SCHEME: WebDriverAgentRunner
           DESTINATION: generic/platform=iOS
-          WD: appium_wda_ios/Build/Products/Debug-iphoneos
+          # iFARM : Release, parce que `build-real.sh` compile desormais avec
+          # `-configuration Release` (cf. le pourquoi dans ce script). Xcode ecrit
+          # dans `Release-iphoneos`, pas `Debug-iphoneos` -- laisser Debug ici fait
+          # ECHOUER l'emballage APRES une compilation reussie, et le log ne dit que
+          # << No such file or directory >>. Vecu le 2026-08-08.
+          WD: appium_wda_ios/Build/Products/Release-iphoneos
           ZIP_PKG_NAME: "${{ env.ZIP_PKG_NAME_IOS }}"
 
       - name: Create a zip file of WebDriverAgentRunner-Runner.app for tvOS
