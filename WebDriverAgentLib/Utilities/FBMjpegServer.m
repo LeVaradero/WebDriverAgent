@@ -270,6 +270,10 @@ static const uint8_t FBH264StartCode[4] = {0x00, 0x00, 0x00, 0x01};
 @property (nonatomic, assign) int64_t frameIndex;
 @property (nonatomic, assign) CVPixelBufferPoolRef pixelBufferPool;
 @property (nonatomic, strong) CIContext *ciContext;
+@property (nonatomic, assign) uint64_t mesureCapture;
+@property (nonatomic, assign) uint64_t mesureConversion;
+@property (nonatomic, assign) uint64_t mesureEncodage;
+@property (nonatomic, assign) NSUInteger mesureCompte;
 
 - (void)broadcastPayload:(NSData *)payload;
 
@@ -434,6 +438,7 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
   }
 
   NSError *error;
+  uint64_t tCapture = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
   // On demande l'IMAGE, pas les octets : la reponse de XCTest en porte deja une
   // de decodee. Prendre les octets nous faisait redecoder un JPEG de 3,3 Mpx a
   // chaque trame -- c'est ce qui separait nos 13,6 img/s des 38 de DeviceKit.
@@ -447,6 +452,8 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     [self scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
     return;
   }
+
+  self.mesureCapture += clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) - tCapture;
 
   CGImageRef cgImage = image.CGImage;
   if (NULL == cgImage) {
@@ -580,7 +587,9 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
   if (![self prepareSessionForWidth:CGImageGetWidth(image) height:CGImageGetHeight(image)]) {
     return;
   }
+  uint64_t tConversion = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
   CVPixelBufferRef pixelBuffer = [self pixelBufferFromImage:image];
+  self.mesureConversion += clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) - tConversion;
   if (NULL == pixelBuffer) {
     return;
   }
@@ -596,9 +605,25 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     self.needsKeyFrame = NO;
   }
 
+  uint64_t tEncodage = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
   VTCompressionSessionEncodeFrame(self.session, pixelBuffer, presentationTime, kCMTimeInvalid,
                                   (__bridge CFDictionaryRef)frameProperties, NULL, NULL);
+  self.mesureEncodage += clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) - tEncodage;
   CVPixelBufferRelease(pixelBuffer);
+
+  // 🔴 UNE LIGNE TOUTES LES 60 IMAGES, ET ELLE DIT OU PASSE LE TEMPS. Trois
+  // hypotheses sur ce goulot ont ete fausses le 2026-08-08 faute de l'avoir
+  // ecrite plus tot. Le cout par image se lit ici, il ne se devine pas.
+  if (0 == ++self.mesureCompte % 60) {
+    double c = (double)self.mesureCapture / 60.0 / 1e6;
+    double v = (double)self.mesureConversion / 60.0 / 1e6;
+    double n = (double)self.mesureEncodage / 60.0 / 1e6;
+    [FBLogger logFmt:@"H264 couts: capture %.1f ms | conversion %.1f ms | encodage %.1f ms"
+     @" | total %.1f ms -> %.1f img/s", c, v, n, c + v + n, 1000.0 / MAX(c + v + n, 0.1)];
+    self.mesureCapture = 0;
+    self.mesureConversion = 0;
+    self.mesureEncodage = 0;
+  }
 }
 
 - (void)broadcastPayload:(NSData *)payload
