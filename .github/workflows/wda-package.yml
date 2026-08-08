@@ -56,7 +56,12 @@ jobs:
           DERIVED_DATA_PATH: appium_wda_tvos
           SCHEME: WebDriverAgentRunner_tvOS
           DESTINATION: generic/platform=tvOS
-          WD: appium_wda_tvos/Build/Products/Debug-appletvos
+          # iFARM : Release aussi ici. Le MEME `build-real.sh` sert a l'iOS et au
+          # tvOS ; n'en corriger qu'un fait tomber le job entier, donc l'artefact
+          # iOS n'est PAS publie -- alors que sa compilation a reussi. Vecu deux
+          # fois de suite le 2026-08-08. On ne se sert pas du tvOS, mais il ne doit
+          # pas faire echouer le seul job qui nous interesse.
+          WD: appium_wda_tvos/Build/Products/Release-appletvos
           ZIP_PKG_NAME: "${{ env.ZIP_PKG_NAME_TVOS }}"
 
       - name: Upload the built generic app package for iOS
