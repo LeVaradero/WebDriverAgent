@@ -91,6 +91,34 @@ NSString *formatTimeInterval(NSTimeInterval interval) {
                                                         error:error];
 }
 
++ (void)requestImageWithScreenID:(long long)screenID
+              compressionQuality:(CGFloat)compressionQuality
+                             uti:(UTType *)uti
+                      completion:(void (^)(UIImage *_Nullable, NSError *_Nullable))completion
+{
+  NSError *requestError = nil;
+  id screenshotRequest = [self.class screenshotRequestWithScreenID:screenID
+                                                              rect:CGRectNull
+                                                               uti:uti
+                                                compressionQuality:compressionQuality
+                                                             error:&requestError];
+  if (nil == screenshotRequest) {
+    completion(nil, requestError);
+    return;
+  }
+  id<XCTestManager_ManagerInterface> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
+  [proxy _XCT_requestScreenshot:screenshotRequest
+                      withReply:^(id image, NSError *err) {
+    if (nil != err) {
+      completion(nil, err);
+    } else if (nil != image && [image respondsToSelector:@selector(platformImage)]) {
+      completion([image performSelector:@selector(platformImage)], nil);
+    } else {
+      completion(nil, nil);
+    }
+  }];
+}
+
 + (UIImage *)takeImageInOriginalResolutionWithScreenID:(long long)screenID
                                    compressionQuality:(CGFloat)compressionQuality
                                                   uti:(UTType *)uti

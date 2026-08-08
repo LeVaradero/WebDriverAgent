@@ -44,6 +44,23 @@ NS_ASSUME_NONNULL_BEGIN
  53 sur le MEME telephone dans les MEMES conditions.
  Utilisee par le diffuseur H.264, qui n'a que faire d'un JPEG.
  */
+/**
+ La capture SANS ATTENDRE : rend l'image au bloc `completion`.
+
+ POURQUOI. Les deux autres variantes bloquent le fil appelant sur un
+ semaphore. DeviceKit, dont la capture met ~19 ms la ou la notre en met
+ 32 a 48, ne bloque JAMAIS : sa boucle est `async` et capture depuis le
+ fil principal, celui ou vit la boucle d'execution de XCTest.
+ C'est la derniere difference structurelle entre leur chemin et le notre.
+ ⚠️ Le bloc est appele sur le fil que XCTest choisit -- ne rien y faire de
+ lourd, sauter sur sa propre file.
+ */
++ (void)requestImageWithScreenID:(long long)screenID
+              compressionQuality:(CGFloat)compressionQuality
+                             uti:(UTType *)uti
+                      completion:(void (^)(UIImage *_Nullable image,
+                                           NSError *_Nullable error))completion;
+
 + (nullable UIImage *)takeImageInOriginalResolutionWithScreenID:(long long)screenID
                                             compressionQuality:(CGFloat)compressionQuality
                                                            uti:(UTType *)uti

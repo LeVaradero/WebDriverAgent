@@ -446,32 +446,47 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     return;
   }
 
-  NSError *error;
+  // 🔴 CAPTURE SUR LE FIL PRINCIPAL, ET SANS BLOQUER. C'est la derniere
+  // difference avec DeviceKit, dont la capture met ~19 ms quand la notre en
+  // mettait 32 a 48 : leur boucle est `async` sur le MainActor, elle n'attend
+  // jamais sur un semaphore. Le fil principal est celui ou vit la boucle
+  // d'execution de XCTest ; demander la capture d'ailleurs, puis BLOQUER en
+  // attendant la reponse, faisait payer l'aller-retour deux fois.
+  // ⚠️ On ne fait RIEN de lourd sur le fil principal : des que l'image est la,
+  // on saute sur notre file pour convertir et encoder.
   uint64_t tCapture = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
-  // On demande l'IMAGE, pas les octets : la reponse de XCTest en porte deja une
-  // de decodee. Prendre les octets nous faisait redecoder un JPEG de 3,3 Mpx a
-  // chaque trame -- c'est ce qui separait nos 13,6 img/s des 38 de DeviceKit.
-  UIImage *image = [FBScreenshot takeImageInOriginalResolutionWithScreenID:self.mainScreenID
-                                                        compressionQuality:FBH264CaptureQuality
-                                                                       uti:UTTypeJPEG
-                                                                   timeout:FBH264FrameTimeout
-                                                                     error:&error];
-  if (nil == image) {
-    [FBLogger logFmt:@"H264: capture impossible: %@", error.description];
-    [self scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
-    return;
-  }
-
-  self.mesureCapture += clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) - tCapture;
-
-  CGImageRef cgImage = image.CGImage;
-  if (NULL == cgImage) {
-    [self scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
-    return;
-  }
-
-  [self encodeImage:cgImage];
-  [self scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
+  __weak typeof(self) weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    typeof(self) fort = weakSelf;
+    if (nil == fort || !fort.isStreaming) {
+      return;
+    }
+    [FBScreenshot requestImageWithScreenID:fort.mainScreenID
+                       compressionQuality:FBH264CaptureQuality
+                                      uti:UTTypeJPEG
+                               completion:^(UIImage *image, NSError *error) {
+      typeof(self) encore = weakSelf;
+      if (nil == encore || !encore.isStreaming) {
+        return;
+      }
+      encore.mesureCapture += clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) - tCapture;
+      dispatch_async(encore.backgroundQueue, ^{
+        typeof(self) enfin = weakSelf;
+        if (nil == enfin || !enfin.isStreaming) {
+          return;
+        }
+        CGImageRef cgImage = image.CGImage;
+        if (NULL == cgImage) {
+          if (nil != error) {
+            [FBLogger logFmt:@"H264: capture impossible: %@", error.description];
+          }
+        } else {
+          [enfin encodeImage:cgImage];
+        }
+        [enfin scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
+      });
+    }];
+  });
 }
 
 - (BOOL)prepareSessionForWidth:(size_t)width height:(size_t)height
