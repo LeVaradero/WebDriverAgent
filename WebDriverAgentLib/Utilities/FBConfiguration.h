@@ -133,6 +133,13 @@ extern NSString *const FBSnapshotMaxDepthKey;
 + (NSInteger)mjpegServerPort;
 
 /**
+ Port d'ecoute du diffuseur H.264 (`H264_SERVER_PORT`).
+ Par defaut le port MJPEG + 1, pour qu'un seul reglage suffise dans le cas
+ courant tout en restant deplacable si ce voisin est deja pris.
+ */
++ (NSInteger)h264ServerPort;
+
+/**
  The maximum allowed HTTP request body size in bytes.
  Defaults to 1GB and can be overridden with the MAX_HTTP_REQUEST_BODY_SIZE environment variable.
  */

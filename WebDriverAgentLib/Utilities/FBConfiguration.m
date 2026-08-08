@@ -165,6 +165,18 @@ static BOOL FBShouldEnforceCustomSnapshots = NO;
   return DefaultMjpegServerPort;
 }
 
++ (NSInteger)h264ServerPort
+{
+  NSString *port = NSProcessInfo.processInfo.environment[@"H264_SERVER_PORT"];
+  if (nil != port && port.length > 0) {
+    return port.integerValue;
+  }
+  // Voisin immediat du port MJPEG : un seul reglage a poser dans le cas
+  // courant, et le flux H.264 suit automatiquement le telephone auquel il
+  // appartient (9201 -> 9202 pour le XS Max, 9200 -> 9201 pour le 12 mini...).
+  return self.mjpegServerPort + 1;
+}
+
 + (UInt64)httpRequestBodySizeLimit
 {
   NSString *limit = NSProcessInfo.processInfo.environment[@"MAX_HTTP_REQUEST_BODY_SIZE"];
