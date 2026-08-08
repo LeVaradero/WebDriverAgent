@@ -33,6 +33,23 @@ NS_ASSUME_NONNULL_BEGIN
  @param error If there is an error, upon return contains an NSError object that describes the problem.
  @return Device screenshot as PNG-, HEIC- or JPG-encoded data or nil in case of failure
  */
+/**
+ La MEME capture, mais rendue en IMAGE au lieu d'octets encodes.
+
+ POURQUOI ELLE EXISTE. La reponse de XCTest porte DEJA une image decodee
+ (`platformImage`) a cote de ses octets. Prendre les octets oblige a
+ redecoder un JPEG de 3,3 megapixels a chaque trame -- inutile des lors
+ qu'on veut des pixels et non un fichier. Mesure du 2026-08-08 : le MJPEG
+ de WDA rend 18 img/s la ou DeviceKit, qui prend `platformImage`, en rend
+ 53 sur le MEME telephone dans les MEMES conditions.
+ Utilisee par le diffuseur H.264, qui n'a que faire d'un JPEG.
+ */
++ (nullable UIImage *)takeImageInOriginalResolutionWithScreenID:(long long)screenID
+                                            compressionQuality:(CGFloat)compressionQuality
+                                                           uti:(UTType *)uti
+                                                       timeout:(NSTimeInterval)timeout
+                                                         error:(NSError **)error;
+
 + (nullable NSData *)takeInOriginalResolutionWithScreenID:(long long)screenID
                                        compressionQuality:(CGFloat)compressionQuality
                                                       uti:(UTType *)uti

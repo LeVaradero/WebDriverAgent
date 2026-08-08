@@ -8,6 +8,8 @@
 
 #import "FBScreenshot.h"
 
+@import UIKit;
+
 @import UniformTypeIdentifiers;
 
 #import "FBConfiguration.h"
@@ -87,6 +89,54 @@ NSString *formatTimeInterval(NSTimeInterval interval) {
                                                 scalingFactor:1.0 / scale
                                            compressionQuality:FBMaxCompressionQuality
                                                         error:error];
+}
+
++ (UIImage *)takeImageInOriginalResolutionWithScreenID:(long long)screenID
+                                   compressionQuality:(CGFloat)compressionQuality
+                                                  uti:(UTType *)uti
+                                              timeout:(NSTimeInterval)timeout
+                                                error:(NSError **)error
+{
+  // Copie conforme de la methode ci-dessous, a UNE ligne pres : on prend
+  // `platformImage` au lieu de `data`. C'est cette ligne qui vaut le facteur 3
+  // (cf. l'en-tete). Le reste -- construction de la requete, semaphore, delai
+  // de garde -- est identique et le restera : les deux doivent evoluer ensemble.
+  id<XCTestManager_ManagerInterface> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
+  __block UIImage *screenshotImage = nil;
+  __block NSError *innerError = nil;
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  id screenshotRequest = [self.class screenshotRequestWithScreenID:screenID
+                                                              rect:CGRectNull
+                                                               uti:uti
+                                                compressionQuality:compressionQuality
+                                                             error:error];
+  if (nil == screenshotRequest) {
+    return nil;
+  }
+  [proxy _XCT_requestScreenshot:screenshotRequest
+                      withReply:^(id image, NSError *err) {
+    if (nil != err) {
+      innerError = err;
+    } else if (nil != image && [image respondsToSelector:@selector(platformImage)]) {
+      screenshotImage = [image performSelector:@selector(platformImage)];
+    }
+    dispatch_semaphore_signal(sem);
+  }];
+  int64_t timeoutNs = (int64_t)(timeout * NSEC_PER_SEC);
+  if (0 != dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, timeoutNs))) {
+    NSString *timeoutMsg = [NSString stringWithFormat:@"Cannot take a screenshot within %@ timeout",
+                            formatTimeInterval(timeout)];
+    if (nil == error) {
+      [FBLogger log:timeoutMsg];
+    } else if (nil == innerError) {
+      [[[FBErrorBuilder builder] withDescription:timeoutMsg] buildError:error];
+    }
+    return nil;
+  }
+  if (nil != error && nil != innerError) {
+    *error = innerError;
+  }
+  return screenshotImage;
 }
 
 + (NSData *)takeInOriginalResolutionWithScreenID:(long long)screenID

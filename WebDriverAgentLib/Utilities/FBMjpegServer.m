@@ -434,18 +434,20 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
   }
 
   NSError *error;
-  NSData *jpegData = [FBScreenshot takeInOriginalResolutionWithScreenID:self.mainScreenID
-                                                    compressionQuality:FBH264CaptureQuality
-                                                                   uti:UTTypeJPEG
-                                                               timeout:FBH264FrameTimeout
-                                                                 error:&error];
-  if (nil == jpegData) {
+  // On demande l'IMAGE, pas les octets : la reponse de XCTest en porte deja une
+  // de decodee. Prendre les octets nous faisait redecoder un JPEG de 3,3 Mpx a
+  // chaque trame -- c'est ce qui separait nos 13,6 img/s des 38 de DeviceKit.
+  UIImage *image = [FBScreenshot takeImageInOriginalResolutionWithScreenID:self.mainScreenID
+                                                        compressionQuality:FBH264CaptureQuality
+                                                                       uti:UTTypeJPEG
+                                                                   timeout:FBH264FrameTimeout
+                                                                     error:&error];
+  if (nil == image) {
     [FBLogger logFmt:@"H264: capture impossible: %@", error.description];
     [self scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
     return;
   }
 
-  UIImage *image = [UIImage imageWithData:jpegData];
   CGImageRef cgImage = image.CGImage;
   if (NULL == cgImage) {
     [self scheduleNextFrameWithInterval:interval timeStarted:timeStarted];
