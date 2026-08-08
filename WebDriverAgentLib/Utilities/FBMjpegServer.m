@@ -274,6 +274,7 @@ static const uint8_t FBH264StartCode[4] = {0x00, 0x00, 0x00, 0x01};
 @property (nonatomic, assign) uint64_t mesureConversion;
 @property (nonatomic, assign) uint64_t mesureEncodage;
 @property (nonatomic, assign) NSUInteger mesureCompte;
+@property (nonatomic, assign) NSUInteger mesurePerdues;
 
 - (void)broadcastPayload:(NSData *)payload;
 
@@ -532,7 +533,7 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
   };
   CVPixelBufferPoolRef pool = NULL;
   CVPixelBufferPoolCreate(kCFAllocatorDefault,
-                          (__bridge CFDictionaryRef)@{(id)kCVPixelBufferPoolMinimumBufferCountKey: @3},
+                          (__bridge CFDictionaryRef)@{(id)kCVPixelBufferPoolMinimumBufferCountKey: @8},
                           (__bridge CFDictionaryRef)poolAttributs, &pool);
   if (NULL != self.pixelBufferPool) {
     CVPixelBufferPoolRelease(self.pixelBufferPool);
@@ -578,9 +579,16 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     return NULL;
   }
   CVPixelBufferRef pixelBuffer = NULL;
-  if (kCVReturnSuccess != CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,
-                                                             self.pixelBufferPool,
-                                                             &pixelBuffer)) {
+  CVReturn issue = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,
+                                                     self.pixelBufferPool,
+                                                     &pixelBuffer);
+  if (kCVReturnSuccess != issue) {
+    // 🔴 UN ECHEC MUET JETAIT UNE IMAGE SUR DEUX. Le pool ne gardait que 3
+    // buffers ; quand l'encodeur les retenait tous, la creation echouait et on
+    // rendait NULL sans un mot. Mesure du 2026-08-08 : la boucle tournait a
+    // 25 img/s et le flux n'en livrait que 14. Le pool en garde 8, et un echec
+    // se DIT -- une image perdue en silence est une image qu'on cherche ailleurs.
+    self.mesurePerdues++;
     return NULL;
   }
   // Rendu par le GPU. Aucun redimensionnement : la definition native est deja
@@ -627,10 +635,12 @@ static void FBH264OutputCallback(void *outputCallbackRefCon,
     double v = (double)self.mesureConversion / 60.0 / 1e6;
     double n = (double)self.mesureEncodage / 60.0 / 1e6;
     [FBLogger logFmt:@"H264 couts: capture %.1f ms | conversion %.1f ms | encodage %.1f ms"
-     @" | total %.1f ms -> %.1f img/s", c, v, n, c + v + n, 1000.0 / MAX(c + v + n, 0.1)];
+     @" | total %.1f ms -> %.1f img/s | perdues %@", c, v, n, c + v + n,
+     1000.0 / MAX(c + v + n, 0.1), @(self.mesurePerdues)];
     self.mesureCapture = 0;
     self.mesureConversion = 0;
     self.mesureEncodage = 0;
+    self.mesurePerdues = 0;
   }
 }
 
